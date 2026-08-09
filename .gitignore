@@ -12,5 +12,9 @@ __pycache__/
 .DS_Store
 
 # Generated files
-output/*.docx
-output/*.pdf
+output/
+temp/
+
+# IDE
+.vscode/
+.idea/
