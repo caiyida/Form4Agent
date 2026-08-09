@@ -8,6 +8,10 @@ TEMPLATE_DIR = PROJECT_ROOT / "templates"
 INPUT_DIR = PROJECT_ROOT / "input"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
+# 自动创建需要的目录（本机、Render 都适用）
+INPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
+
 # 文件路径
 FORM4_TEMPLATE = TEMPLATE_DIR / "Form4_Template.docx"
 FORM_DATA_FILE = INPUT_DIR / "form_data.json"
