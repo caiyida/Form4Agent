@@ -11,8 +11,8 @@ def fill_form(
 
     for key, value in form_data.items():
 
-        if value in ("", None):
-            continue
+        if value is None:
+            value = ""
 
         replace_placeholder(
             document,
