@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: form4agent
+    runtime: docker
+    region: singapore
+    plan: free
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false

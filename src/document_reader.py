@@ -1,42 +1,59 @@
 import base64
-import json
+from typing import Literal
 from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import BaseModel
 
 load_dotenv()
 
-client = OpenAI()
+SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png"}
 
 
-def read_document(image_path: str):
+class DocumentExtractionError(RuntimeError):
+    """Raised when an identity document cannot be extracted safely."""
+
+
+class ExtractedIdentity(BaseModel):
+    document_type: Literal["Passport", "NRIC", "FIN", "Unknown"]
+    name: str
+    id_number: str
+
+
+class UploadedDocumentAnalysis(BaseModel):
+    document_type: Literal["Passport", "NRIC", "FIN", "Property", "Form4", "Unknown"]
+    name: str
+    id_number: str
+    property_address: str
+
+
+def read_document_bytes(content: bytes, mime_type: str, client=None):
     """
-    Read identity document and return structured JSON.
+    Read one identity-document image and return normalized structured data.
     """
 
-    image_path = Path(image_path)
+    if not content:
+        raise DocumentExtractionError("The document image is empty.")
+    if mime_type not in SUPPORTED_IMAGE_TYPES:
+        raise DocumentExtractionError(f"Unsupported image type: {mime_type}")
 
-    with open(image_path, "rb") as f:
-        image_base64 = base64.b64encode(f.read()).decode("utf-8")
+    image_base64 = base64.b64encode(content).decode("utf-8")
+    api_client = client or OpenAI()
 
-    # Detect image type
-    suffix = image_path.suffix.lower()
-
-    if suffix == ".png":
-        mime_type = "image/png"
-    else:
-        mime_type = "image/jpeg"
-
-    response = client.responses.create(
-        model="gpt-5.5",
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": """
+    try:
+        response = api_client.responses.parse(
+            model="gpt-5.5",
+            text_format=ExtractedIdentity,
+            store=False,
+            timeout=60,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": """
 Extract information from this document.
 
 First determine the document type.
@@ -119,14 +136,98 @@ Do not explain.
 
 Do not use markdown.
 """
-                    },
-                    {
-                        "type": "input_image",
-                        "image_url": f"data:{mime_type};base64,{image_base64}",
-                    }
-                ]
-            }
-        ]
-    )
+                        },
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:{mime_type};base64,{image_base64}",
+                        },
+                    ],
+                }
+            ],
+        )
+    except Exception as exc:
+        raise DocumentExtractionError(
+            "The extraction service could not process this document."
+        ) from exc
 
-    return json.loads(response.output_text)
+    parsed = response.output_parsed
+    if parsed is None:
+        raise DocumentExtractionError("The extraction service returned no usable data.")
+
+    return {
+        "document_type": parsed.document_type,
+        "name": parsed.name.strip(),
+        "id_number": parsed.id_number.strip(),
+    }
+
+
+def analyze_document_bytes(content: bytes, mime_type: str, client=None):
+    """Classify an upload and extract only fields needed by the Form 4 flow."""
+
+    if not content:
+        raise DocumentExtractionError("The uploaded image is empty.")
+    if mime_type not in SUPPORTED_IMAGE_TYPES:
+        raise DocumentExtractionError(f"Unsupported image type: {mime_type}")
+
+    image_base64 = base64.b64encode(content).decode("utf-8")
+    api_client = client or OpenAI()
+    try:
+        response = api_client.responses.parse(
+            model="gpt-5.5",
+            text_format=UploadedDocumentAnalysis,
+            store=False,
+            timeout=60,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "Classify this image as Passport, Singapore NRIC, "
+                                "Singapore FIN/pass, Property, Form4, or Unknown. "
+                                "Use Form4 only when the content is recognisably a CEA "
+                                "Form 4 estate agency agreement. For an identity document, "
+                                "extract the full name and identity number. For a property "
+                                "listing, tenancy screenshot, message, document, or Form 4, "
+                                "extract the complete Singapore property address when clearly "
+                                "visible. Return empty strings for fields that are absent or "
+                                "uncertain. Do not infer or invent any value."
+                            ),
+                        },
+                        {
+                            "type": "input_image",
+                            "image_url": f"data:{mime_type};base64,{image_base64}",
+                        },
+                    ],
+                }
+            ],
+        )
+    except Exception as exc:
+        raise DocumentExtractionError(
+            "The extraction service could not analyse this upload."
+        ) from exc
+
+    parsed = response.output_parsed
+    if parsed is None:
+        raise DocumentExtractionError("The extraction service returned no usable data.")
+    return {
+        "document_type": parsed.document_type,
+        "name": parsed.name.strip(),
+        "id_number": parsed.id_number.strip(),
+        "property_address": parsed.property_address.strip(),
+    }
+
+
+def read_document(image_path: str, client=None):
+    """Read an identity document image from a local path."""
+
+    path = Path(image_path)
+    mime_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+
+    try:
+        content = path.read_bytes()
+    except OSError as exc:
+        raise DocumentExtractionError("The document image could not be read.") from exc
+
+    return read_document_bytes(content, mime_type, client=client)
