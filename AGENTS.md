@@ -23,7 +23,7 @@ The current processing flow is:
 2. `src/json_builder.py` and `src/document_reader.py` classify the content as identity, property material, Form 4, or unknown and return only the needed structured fields.
 3. Identity/property inputs are normalized and validated, then `src/form4_engine.py` fills a template copy through surgical XML-safe replacement in `src/word_helper.py`.
 4. The customer version removes only the salesperson mark drawings and is converted to PDF when LibreOffice is available.
-5. For a single recognised Form 4, `src/pdf_helper.py` renders the source template to calibrate and immediately apply the embedded signature and initial images at template-defined PDF positions.
+5. For a single recognised Form 4, `src/pdf_helper.py` finds the salesperson signature line from PDF text or OCR, applies the signature above that line, and applies the template initial position to every uploaded page.
 6. All web artifacts remain session-scoped and in memory. The legacy CLI uses `input/` and `output/` and also requests PDF conversion.
 
 This is currently a synchronous application. Imports in the app and source files assume `src/` is on `sys.path`; it is not an installed Python package. The web flow is session-scoped and in-memory, while the CLI retains a local-filesystem workflow.
@@ -35,7 +35,7 @@ This is currently a synchronous application. Imports in the app and source files
 - `src/config.py`: repository paths, template/input/output locations, and creation of local input/output directories.
 - `src/document_reader.py`: OpenAI client setup, identity/property/Form 4 classification, multimodal structured extraction, and safe error translation. This handles highly sensitive identity data.
 - `src/form_rules.py`: Singapore-local agreement date defaults and the stepped commission calculation.
-- `src/pdf_helper.py`: renders PDFs to in-memory page images, normalizes signed uploads, converts DOCX through headless LibreOffice, derives mark positions from a rendered template, and applies signature/initial images.
+- `src/pdf_helper.py`: renders PDFs to in-memory page images, normalizes signed uploads, converts DOCX through headless LibreOffice, locates the salesperson line through text/OCR, and applies signature/initial images.
 - `src/json_builder.py`: invokes smart classification, collects a property address, maps up to four identities, and supplies confirmed defaults. It also supports the legacy CLI input directory.
 - `src/validator.py`: required-field policy before generation.
 - `src/form_loader.py`: opens `templates/Form4_Template.docx` with `python-docx`.
@@ -103,7 +103,7 @@ For future behavior changes, add focused automated tests that mock the OpenAI cl
 - The unused legacy path-based PDF helper writes page images to `temp/` without lifecycle cleanup; do not reintroduce it into the web flow.
 - Model names, API behavior, and third-party library behavior can change. Keep external calls behind mockable boundaries and do not make network-dependent assertions in automated tests.
 - PDF conversion is platform-dependent, and relative-path assumptions make execution outside the repository root unreliable.
-- Final PDF signing depends on LibreOffice rendering the template and exactly locating seven initial images plus one signature image. Fail closed if calibration is ambiguous; never substitute guessed positions merely to return a file.
+- Final PDF signing depends on finding the salesperson label through embedded PDF text or Tesseract OCR. Fail closed if the content-relative signature line cannot be found; never substitute a page-fixed guessed signature position merely to return a file.
 
 ## Word document generation rules
 

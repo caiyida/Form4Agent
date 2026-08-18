@@ -43,13 +43,15 @@ Classification is based on content, not filename. It is a convenience decision, 
 - Perform only a broad content check that the upload resembles CEA Form 4. Never claim the document, signatures, or initials are authentic or complete.
 - Recognition and signing happen in the same Generate Form 4 action. Do not add a confirmation checkbox or a second signing button.
 - Locate signature and initials using a PDF rendered from `templates/Form4_Template.docx`; do not maintain unrelated hand-guessed positions or change the template.
-- Apply the salesperson signature once and initials at the seven template-defined locations when those target pages exist. If a required target page is absent or positions cannot be verified, fail safely without creating a misleading final document.
+- Locate the salesperson signature line by its `Signed by *Salesperson for and on behalf of the Estate Agent` content, using OCR for scanned files, and place the signature directly above that line rather than at a fixed page coordinate.
+- Apply initials to every uploaded page. Use the seven protected template anchors for pages 1–7 and continue the same top-right placement for page 8 and any later pages.
 - The final output is PDF.
 - After successful signing, show the concise status **Signature added** and the final PDF download.
 
 ## Delivery, privacy, and hosting
 
 - Downloads must work on mobile so the user can use the operating-system share sheet to select WeChat or WhatsApp. Never auto-send or choose a recipient.
+- Show WeChat and WhatsApp share controls for the final PDF. Browser security still requires the user to choose the target app and recipient in the operating-system share sheet; retain the normal download fallback.
 - Keep uploads, extracted identity fields, and generated documents session-scoped and in memory. Clear them on user request and do not add a database or persistent disk.
 - Production remains the existing Render service in Singapore on the free plan. Free-tier sleep is acceptable; do not add keep-alive traffic to defeat it.
 - The interface is mobile-first, concise, and uses progressive disclosure. Routine details stay hidden unless `Edit details` is opened.

@@ -1,5 +1,6 @@
 from io import BytesIO
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from tempfile import TemporaryDirectory
@@ -256,68 +257,125 @@ def _template_initial_placements():
     return placements
 
 
-def locate_template_marks(reference_pdf):
-    """Locate mark rectangles in a LibreOffice-rendered source-of-truth template."""
+SIGNATURE_LABEL_WORDS = (
+    "salesperson",
+    "for",
+    "and",
+    "on",
+    "behalf",
+    "of",
+    "the",
+    "estate",
+    "agent",
+)
 
-    with fitz.open(stream=reference_pdf, filetype="pdf") as document:
-        if document.page_count < 7:
-            raise DocumentConversionError(
-                "The server rendered an incomplete Form 4 reference."
-            )
 
-        placements = _template_initial_placements()
+def _normalize_pdf_word(value):
+    return re.sub(r"[^a-z]", "", value.lower())
 
-        # The salesperson signature is on template page five. Its placed shape
-        # is wider than an initial; exclude the already-selected top-right mark.
-        signature_page_number = 4
-        signature_page = document[signature_page_number]
-        signature_candidates = []
-        for info in signature_page.get_image_info():
-            rectangle = fitz.Rect(info["bbox"])
-            if rectangle.height <= 0 or not info.get("height"):
-                continue
-            source_ratio = info["width"] / info["height"]
-            relative_width = rectangle.width / signature_page.rect.width
-            relative_height = rectangle.height / signature_page.rect.height
-            if 1.4 <= source_ratio <= 1.65 and 0.08 <= relative_width <= 0.3 and 0.02 <= relative_height <= 0.12:
-                score = abs(source_ratio - 1.514) + abs(relative_width - 0.148)
-                signature_candidates.append((score, rectangle))
-        if not signature_candidates:
-            raise DocumentConversionError(
-                "The server could not locate the template signature position."
-            )
-        signature_rectangle = min(signature_candidates, key=lambda item: item[0])[1]
-        placements.append(("signature", signature_page_number, signature_rectangle))
-        return placements
+
+def _find_signature_label(words):
+    normalized = [(_normalize_pdf_word(word[4]), fitz.Rect(word[:4])) for word in words]
+    normalized = [(text, rectangle) for text, rectangle in normalized if text]
+    target = list(SIGNATURE_LABEL_WORDS)
+    for start in range(len(normalized) - len(target) + 1):
+        if [item[0] for item in normalized[start : start + len(target)]] == target:
+            rectangle = normalized[start][1]
+            for _, word_rectangle in normalized[start + 1 : start + len(target)]:
+                rectangle |= word_rectangle
+            return rectangle
+    return None
+
+
+def _signature_rectangle(document):
+    """Locate the salesperson line from PDF text, with OCR for scanned pages."""
+
+    for page in document:
+        label = _find_signature_label(page.get_text("words"))
+        if label is None:
+            try:
+                text_page = page.get_textpage_ocr(language="eng", dpi=150, full=True)
+                label = _find_signature_label(
+                    page.get_text("words", textpage=text_page)
+                )
+            except RuntimeError:
+                label = None
+        if label is None:
+            continue
+
+        line_candidates = []
+        for drawing in page.get_drawings():
+            rectangle = fitz.Rect(drawing["rect"])
+            gap = label.y0 - rectangle.y1
+            if (
+                rectangle.width >= 100
+                and rectangle.height <= 4
+                and -2 <= gap <= 80
+                and rectangle.x1 >= label.x0
+                and rectangle.x0 <= label.x1
+            ):
+                line_candidates.append((abs(gap), rectangle))
+
+        if line_candidates:
+            line = min(line_candidates, key=lambda item: item[0])[1]
+        else:
+            # Some Word-to-PDF renderers encode the line as underscore text.
+            # Derive it from the located label rather than a page-fixed position.
+            line = fitz.Rect(label.x0, label.y0 - 38, label.x0 + 265, label.y0 - 2)
+
+        signature_width = 1119505 / 12700
+        signature_height = 428625 / 12700
+        center_x = (line.x0 + line.x1) / 2
+        bottom = line.y0 + 2
+        return page.number, fitz.Rect(
+            center_x - signature_width / 2,
+            bottom - signature_height,
+            center_x + signature_width / 2,
+            bottom,
+        )
+
+    raise ValueError(
+        "The salesperson signature line could not be found in this Form 4."
+    )
 
 
 def stamp_agent_marks(content, placements=None):
     """Apply verified template signature/initial positions to a customer PDF."""
 
-    if placements is None:
-        reference = docx_to_pdf_bytes(TEMPLATE_PATH.read_bytes())
-        placements = locate_template_marks(reference)
     images = _template_mark_images()
+    dynamic_placements = placements is None
 
     try:
         document = fitz.open(stream=content, filetype="pdf")
     except Exception as exc:
         raise ValueError("The signed Form 4 could not be opened.") from exc
     try:
+        if placements is None:
+            template_initials = _template_initial_placements()
+            placements = []
+            for page_number in range(document.page_count):
+                source = template_initials[min(page_number, len(template_initials) - 1)]
+                placements.append(("initials", page_number, source[2]))
+            signature_page, signature_rectangle = _signature_rectangle(document)
+            placements.append(("signature", signature_page, signature_rectangle))
+
         for description, page_number, reference_rectangle in placements:
             if page_number >= document.page_count:
                 raise ValueError(
                     "The uploaded Form 4 is missing a page required for signature placement."
                 )
             page = document[page_number]
-            scale_x = page.rect.width / A4[0]
-            scale_y = page.rect.height / A4[1]
-            rectangle = fitz.Rect(
-                reference_rectangle.x0 * scale_x,
-                reference_rectangle.y0 * scale_y,
-                reference_rectangle.x1 * scale_x,
-                reference_rectangle.y1 * scale_y,
-            )
+            if dynamic_placements and description == "signature":
+                rectangle = reference_rectangle
+            else:
+                scale_x = page.rect.width / A4[0]
+                scale_y = page.rect.height / A4[1]
+                rectangle = fitz.Rect(
+                    reference_rectangle.x0 * scale_x,
+                    reference_rectangle.y0 * scale_y,
+                    reference_rectangle.x1 * scale_x,
+                    reference_rectangle.y1 * scale_y,
+                )
             page.insert_image(rectangle, stream=images[description], overlay=True)
         return document.tobytes(garbage=4, deflate=True)
     finally:

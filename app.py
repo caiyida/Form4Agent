@@ -59,14 +59,6 @@ def generate_review(form_data):
     return docx, pdf
 
 
-@st.cache_data(max_entries=1, show_spinner=False)
-def verified_mark_placements():
-    from pdf_helper import TEMPLATE_PATH, docx_to_pdf_bytes, locate_template_marks
-
-    reference_pdf = docx_to_pdf_bytes(TEMPLATE_PATH.read_bytes())
-    return locate_template_marks(reference_pdf)
-
-
 st.set_page_config(
     page_title="Form4Agent",
     page_icon=":material/description:",
@@ -171,10 +163,7 @@ if generate_clicked:
                 analysis = analyze_uploaded_documents(uploads)
                 if analysis["is_form4"]:
                     signed_pdf = signed_upload_to_pdf(uploads)
-                    st.session_state.final_pdf = stamp_agent_marks(
-                        signed_pdf,
-                        placements=verified_mark_placements(),
-                    )
+                    st.session_state.final_pdf = stamp_agent_marks(signed_pdf)
                     st.session_state.result_summary = "Signature added"
                     status.update(label="Signature added", state="complete")
                 else:
@@ -248,6 +237,9 @@ if st.session_state.final_pdf:
             type="primary",
             icon=":material/download:",
         )
+        from share_component import share_pdf
+
+        share_pdf(st.session_state.final_pdf)
 
 if any(
     st.session_state[key]
