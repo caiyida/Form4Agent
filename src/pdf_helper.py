@@ -266,7 +266,6 @@ SIGNATURE_LABEL_WORDS = (
     "of",
     "the",
     "estate",
-    "agent",
 )
 
 
@@ -278,12 +277,26 @@ def _find_signature_label(words):
     normalized = [(_normalize_pdf_word(word[4]), fitz.Rect(word[:4])) for word in words]
     normalized = [(text, rectangle) for text, rectangle in normalized if text]
     target = list(SIGNATURE_LABEL_WORDS)
-    for start in range(len(normalized) - len(target) + 1):
-        if [item[0] for item in normalized[start : start + len(target)]] == target:
-            rectangle = normalized[start][1]
-            for _, word_rectangle in normalized[start + 1 : start + len(target)]:
-                rectangle |= word_rectangle
-            return rectangle
+    for start, (text, first_rectangle) in enumerate(normalized):
+        if not text.startswith(target[0]):
+            continue
+        matched_rectangles = [first_rectangle]
+        target_index = 1
+        skipped = 0
+        for actual, word_rectangle in normalized[start + 1 :]:
+            if actual.startswith(target[target_index]):
+                matched_rectangles.append(word_rectangle)
+                target_index += 1
+                skipped = 0
+                if target_index == len(target):
+                    rectangle = matched_rectangles[0]
+                    for matched_rectangle in matched_rectangles[1:]:
+                        rectangle |= matched_rectangle
+                    return rectangle
+            else:
+                skipped += 1
+                if skipped > 2:
+                    break
     return None
 
 

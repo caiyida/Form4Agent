@@ -73,7 +73,7 @@ class PdfHelperTests(unittest.TestCase):
                     page.draw_line((45, 640), (310, 640))
                     page.insert_text(
                         (45, 660),
-                        "Signed by *Salesperson for and on behalf of the Estate Agent",
+                        "Signed by *Salesperson for and on behalf of the Estate Agent/Estate Agent(1) (13)",
                         fontsize=9,
                     )
             result = stamp_agent_marks(source.tobytes())
