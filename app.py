@@ -160,7 +160,11 @@ if generate_clicked:
         try:
             from document_reader import DocumentExtractionError
             from json_builder import analyze_uploaded_documents
-            from pdf_helper import signed_upload_to_pdf, stamp_agent_marks
+            from pdf_helper import (
+                DocumentConversionError,
+                signed_upload_to_pdf,
+                stamp_agent_marks,
+            )
 
             uploads = [(file.name, file.getvalue()) for file in uploaded_files]
             with st.status("Reading uploaded files…", expanded=False) as status:
@@ -204,7 +208,7 @@ if generate_clicked:
                             f"Prepared Form 4 for {len(analysis['identities'])} tenant(s)."
                         )
                         status.update(label="Customer Form 4 ready", state="complete")
-        except (DocumentExtractionError, ValueError) as exc:
+        except (DocumentExtractionError, DocumentConversionError, ValueError) as exc:
             st.error(str(exc))
         except Exception:
             st.error("The files could not be processed safely. Check them and try again.")

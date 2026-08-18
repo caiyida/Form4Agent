@@ -12,6 +12,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from pdf_helper import (  # noqa: E402
     images_to_pdf_bytes,
+    locate_template_marks,
     pdf_first_page_image_bytes,
     signed_upload_to_pdf,
     stamp_agent_marks,
@@ -25,6 +26,28 @@ def synthetic_image(width=600, height=900):
 
 
 class PdfHelperTests(unittest.TestCase):
+    def test_locates_marks_while_ignoring_similar_distractor_images(self):
+        initials = synthetic_image(200, 100)
+        signature = synthetic_image(260, 100)
+        reference = fitz.open()
+        try:
+            for page_number in range(7):
+                page = reference.new_page(width=595, height=842)
+                page.insert_image(fitz.Rect(495, 48, 535, 68), stream=initials)
+                page.insert_image(fitz.Rect(80, 180, 180, 230), stream=initials)
+                if page_number == 4:
+                    page.insert_image(
+                        fitz.Rect(170, 610, 260, 644), stream=signature
+                    )
+            placements = locate_template_marks(reference.tobytes())
+        finally:
+            reference.close()
+
+        self.assertEqual(
+            [item[0] for item in placements], ["initials"] * 7 + ["signature"]
+        )
+        self.assertEqual(placements[-1][1], 4)
+
     def test_classification_renders_only_the_first_pdf_page(self):
         source = images_to_pdf_bytes([synthetic_image(), synthetic_image()])
         first_page = pdf_first_page_image_bytes(source)

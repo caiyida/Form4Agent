@@ -214,25 +214,68 @@ def locate_template_marks(reference_pdf):
     """Locate mark rectangles in a LibreOffice-rendered source-of-truth template."""
 
     with fitz.open(stream=reference_pdf, filetype="pdf") as document:
-        candidates = []
-        for page_number, page in enumerate(document):
-            for info in page.get_image_info():
-                rectangle = fitz.Rect(info["bbox"])
-                if rectangle.height <= 0:
-                    continue
-                ratio = rectangle.width / rectangle.height
-                if 1.8 <= ratio <= 2.3:
-                    candidates.append(("initials", page_number, rectangle))
-                elif 2.35 <= ratio <= 3.0:
-                    candidates.append(("signature", page_number, rectangle))
-
-        initials = [item for item in candidates if item[0] == "initials"]
-        signatures = [item for item in candidates if item[0] == "signature"]
-        if len(initials) != 7 or len(signatures) != 1:
+        if document.page_count < 7:
             raise DocumentConversionError(
-                "The signature positions could not be verified against the template."
+                "The server rendered an incomplete Form 4 reference."
             )
-        return candidates
+
+        placements = []
+        page_rectangles = []
+        for page in document:
+            page_rectangles.append(
+                [
+                    fitz.Rect(info["bbox"])
+                    for info in page.get_image_info()
+                    if fitz.Rect(info["bbox"]).height > 0
+                ]
+            )
+
+        # Initials are the small image at the top-right of every template page.
+        # Select by page and location so unrelated images with a similar aspect
+        # ratio cannot create false extra matches.
+        selected_initials = []
+        for page_number in range(7):
+            page = document[page_number]
+            candidates = []
+            for rectangle in page_rectangles[page_number]:
+                ratio = rectangle.width / rectangle.height
+                center_x = (rectangle.x0 + rectangle.x1) / (2 * page.rect.width)
+                center_y = (rectangle.y0 + rectangle.y1) / (2 * page.rect.height)
+                if 1.6 <= ratio <= 2.5 and center_x >= 0.65 and center_y <= 0.2:
+                    score = abs(ratio - 2.07) + abs(center_x - 0.866) + abs(
+                        center_y - 0.069
+                    )
+                    candidates.append((score, rectangle))
+            if not candidates:
+                raise DocumentConversionError(
+                    "The server could not locate all seven template initials."
+                )
+            rectangle = min(candidates, key=lambda item: item[0])[1]
+            selected_initials.append((page_number, rectangle))
+            placements.append(("initials", page_number, rectangle))
+
+        # The salesperson signature is on template page five. Its placed shape
+        # is wider than an initial; exclude the already-selected top-right mark.
+        signature_page_number = 4
+        signature_page = document[signature_page_number]
+        initial_rectangle = selected_initials[signature_page_number][1]
+        signature_candidates = []
+        for rectangle in page_rectangles[signature_page_number]:
+            if rectangle == initial_rectangle:
+                continue
+            ratio = rectangle.width / rectangle.height
+            relative_width = rectangle.width / signature_page.rect.width
+            relative_height = rectangle.height / signature_page.rect.height
+            if 2.3 <= ratio <= 3.2 and 0.08 <= relative_width <= 0.3 and 0.02 <= relative_height <= 0.12:
+                score = abs(ratio - 2.61) + abs(relative_width - 0.148)
+                signature_candidates.append((score, rectangle))
+        if not signature_candidates:
+            raise DocumentConversionError(
+                "The server could not locate the template signature position."
+            )
+        signature_rectangle = min(signature_candidates, key=lambda item: item[0])[1]
+        placements.append(("signature", signature_page_number, signature_rectangle))
+        return placements
 
 
 def stamp_agent_marks(content, placements=None):
