@@ -14,6 +14,7 @@ Classification is based on content, not filename. It is a convenience decision, 
 ## Prepare-for-customer behavior
 
 - The main screen contains one upload control accepting JPG, JPEG, PNG, and PDF files.
+- Each upload may be up to 50 MB. Show immediate file-count and total-size feedback after selection.
 - It accepts passports, Singapore NRIC/FIN/pass documents, and screenshots or documents that contain a property address.
 - The primary action is labelled **Generate Form 4**.
 - A manual property-address field appears immediately below the uploader.

@@ -10,7 +10,12 @@ from PIL import Image
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from pdf_helper import images_to_pdf_bytes, signed_upload_to_pdf, stamp_agent_marks  # noqa: E402
+from pdf_helper import (  # noqa: E402
+    images_to_pdf_bytes,
+    pdf_first_page_image_bytes,
+    signed_upload_to_pdf,
+    stamp_agent_marks,
+)
 
 
 def synthetic_image(width=600, height=900):
@@ -20,6 +25,13 @@ def synthetic_image(width=600, height=900):
 
 
 class PdfHelperTests(unittest.TestCase):
+    def test_classification_renders_only_the_first_pdf_page(self):
+        source = images_to_pdf_bytes([synthetic_image(), synthetic_image()])
+        first_page = pdf_first_page_image_bytes(source)
+        with Image.open(BytesIO(first_page)) as image:
+            self.assertGreater(image.width, 0)
+            self.assertGreater(image.height, 0)
+
     def test_ordered_images_become_complete_seven_page_pdf(self):
         pages = [(f"page-{number}.png", synthetic_image()) for number in range(7)]
         result = signed_upload_to_pdf(pages, expected_pages=7)

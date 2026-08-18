@@ -37,6 +37,23 @@ def pdf_to_image_bytes(content: bytes, max_pages=10):
         document.close()
 
 
+def pdf_first_page_image_bytes(content: bytes):
+    """Render only the first PDF page for fast upload classification."""
+
+    if not content:
+        raise ValueError("The PDF is empty.")
+    try:
+        document = fitz.open(stream=content, filetype="pdf")
+    except Exception as exc:
+        raise ValueError("The PDF could not be opened.") from exc
+    try:
+        if document.page_count < 1:
+            raise ValueError("The PDF has no readable pages.")
+        return document[0].get_pixmap(dpi=150).tobytes("png")
+    finally:
+        document.close()
+
+
 def pdf_to_images(pdf_path, output_dir="temp"):
 
     pdf_path = Path(pdf_path)

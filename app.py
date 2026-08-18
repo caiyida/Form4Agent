@@ -13,7 +13,8 @@ from validator import normalized_form_data, validate  # noqa: E402
 
 
 MAX_FILES = 8
-MAX_FILE_BYTES = 10 * 1024 * 1024
+MAX_FILE_MB = 50
+MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024
 EDITABLE_DETAIL_FIELDS = (
     "agreement_date",
     "lease_term",
@@ -82,7 +83,15 @@ uploaded_files = st.file_uploader(
     accept_multiple_files=True,
     key=f"smart_upload_{st.session_state.uploader_version}",
     help="Upload tenant IDs and an address screenshot, or one customer-signed Form 4.",
+    max_upload_size=MAX_FILE_MB,
 )
+
+if uploaded_files:
+    total_size = sum(file.size for file in uploaded_files) / (1024 * 1024)
+    st.caption(
+        f":material/check_circle: {len(uploaded_files)} file(s) ready · "
+        f"{total_size:.1f} MB"
+    )
 
 manual_address = st.text_input(
     "Property address",
@@ -146,7 +155,7 @@ if generate_clicked:
     if len(uploaded_files) > MAX_FILES:
         st.error(f"Upload no more than {MAX_FILES} files.")
     elif any(file.size > MAX_FILE_BYTES for file in uploaded_files):
-        st.error("Each file must be 10 MB or smaller.")
+        st.error(f"Each file must be {MAX_FILE_MB} MB or smaller.")
     else:
         try:
             from document_reader import DocumentExtractionError

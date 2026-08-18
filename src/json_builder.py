@@ -2,7 +2,7 @@ from pathlib import Path
 
 from document_reader import analyze_document_bytes, read_document, read_document_bytes
 from form_rules import default_commission, singapore_today
-from pdf_helper import pdf_to_image_bytes
+from pdf_helper import pdf_first_page_image_bytes, pdf_to_image_bytes
 
 
 FORM_FIELDS = (
@@ -76,10 +76,7 @@ def analyze_uploaded_documents(documents, reader=analyze_document_bytes):
             mime_type = "image/png" if suffix == ".png" else "image/jpeg"
             page = content
         elif suffix == ".pdf":
-            pages = pdf_to_image_bytes(content)
-            if not pages:
-                raise ValueError("The PDF has no readable pages.")
-            page = pages[0]
+            page = pdf_first_page_image_bytes(content)
             mime_type = "image/png"
         else:
             raise ValueError(f"Unsupported file type: {suffix or 'unknown'}")
