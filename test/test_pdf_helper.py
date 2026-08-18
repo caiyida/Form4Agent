@@ -28,7 +28,7 @@ def synthetic_image(width=600, height=900):
 class PdfHelperTests(unittest.TestCase):
     def test_locates_marks_while_ignoring_similar_distractor_images(self):
         initials = synthetic_image(200, 100)
-        signature = synthetic_image(260, 100)
+        signature = synthetic_image(421, 278)
         reference = fitz.open()
         try:
             for page_number in range(7):
@@ -46,6 +46,8 @@ class PdfHelperTests(unittest.TestCase):
         self.assertEqual(
             [item[0] for item in placements], ["initials"] * 7 + ["signature"]
         )
+        self.assertAlmostEqual(placements[0][2].x0, 496, delta=2)
+        self.assertAlmostEqual(placements[0][2].y0, 49, delta=2)
         self.assertEqual(placements[-1][1], 4)
 
     def test_classification_renders_only_the_first_pdf_page(self):

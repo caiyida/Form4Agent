@@ -210,6 +210,52 @@ def _template_mark_images():
     return images
 
 
+def _template_initial_placements():
+    """Convert the seven protected Word anchors directly to A4 PDF points."""
+
+    from lxml import etree
+
+    namespaces = {
+        "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+        "wp": "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing",
+    }
+    with ZipFile(TEMPLATE_PATH) as archive:
+        document = etree.fromstring(archive.read("word/document.xml"))
+
+    left_margins = document.xpath("//w:sectPr/w:pgMar/@w:left", namespaces=namespaces)
+    if not left_margins:
+        raise DocumentConversionError("The template page margin is missing.")
+    left_margin_points = int(left_margins[0]) / 20
+
+    anchors = document.xpath(
+        '//wp:anchor[wp:docPr[@descr="initials"]]', namespaces=namespaces
+    )
+    if len(anchors) != 7:
+        raise DocumentConversionError("The template must contain seven initial anchors.")
+
+    placements = []
+    for page_number, anchor in enumerate(anchors):
+        horizontal = anchor.find("wp:positionH", namespaces)
+        vertical = anchor.find("wp:positionV", namespaces)
+        extent = anchor.find("wp:extent", namespaces)
+        if (
+            horizontal is None
+            or vertical is None
+            or extent is None
+            or horizontal.get("relativeFrom") != "column"
+            or vertical.get("relativeFrom") != "page"
+        ):
+            raise DocumentConversionError("An initial anchor has an unsafe position.")
+        x = left_margin_points + int(horizontal.findtext("wp:posOffset", namespaces=namespaces)) / 12700
+        y = int(vertical.findtext("wp:posOffset", namespaces=namespaces)) / 12700
+        width = int(extent.get("cx")) / 12700
+        height = int(extent.get("cy")) / 12700
+        placements.append(
+            ("initials", page_number, fitz.Rect(x, y, x + width, y + height))
+        )
+    return placements
+
+
 def locate_template_marks(reference_pdf):
     """Locate mark rectangles in a LibreOffice-rendered source-of-truth template."""
 
@@ -219,55 +265,22 @@ def locate_template_marks(reference_pdf):
                 "The server rendered an incomplete Form 4 reference."
             )
 
-        placements = []
-        page_rectangles = []
-        for page in document:
-            page_rectangles.append(
-                [
-                    fitz.Rect(info["bbox"])
-                    for info in page.get_image_info()
-                    if fitz.Rect(info["bbox"]).height > 0
-                ]
-            )
-
-        # Initials are the small image at the top-right of every template page.
-        # Select by page and location so unrelated images with a similar aspect
-        # ratio cannot create false extra matches.
-        selected_initials = []
-        for page_number in range(7):
-            page = document[page_number]
-            candidates = []
-            for rectangle in page_rectangles[page_number]:
-                ratio = rectangle.width / rectangle.height
-                center_x = (rectangle.x0 + rectangle.x1) / (2 * page.rect.width)
-                center_y = (rectangle.y0 + rectangle.y1) / (2 * page.rect.height)
-                if 1.6 <= ratio <= 2.5 and center_x >= 0.65 and center_y <= 0.2:
-                    score = abs(ratio - 2.07) + abs(center_x - 0.866) + abs(
-                        center_y - 0.069
-                    )
-                    candidates.append((score, rectangle))
-            if not candidates:
-                raise DocumentConversionError(
-                    "The server could not locate all seven template initials."
-                )
-            rectangle = min(candidates, key=lambda item: item[0])[1]
-            selected_initials.append((page_number, rectangle))
-            placements.append(("initials", page_number, rectangle))
+        placements = _template_initial_placements()
 
         # The salesperson signature is on template page five. Its placed shape
         # is wider than an initial; exclude the already-selected top-right mark.
         signature_page_number = 4
         signature_page = document[signature_page_number]
-        initial_rectangle = selected_initials[signature_page_number][1]
         signature_candidates = []
-        for rectangle in page_rectangles[signature_page_number]:
-            if rectangle == initial_rectangle:
+        for info in signature_page.get_image_info():
+            rectangle = fitz.Rect(info["bbox"])
+            if rectangle.height <= 0 or not info.get("height"):
                 continue
-            ratio = rectangle.width / rectangle.height
+            source_ratio = info["width"] / info["height"]
             relative_width = rectangle.width / signature_page.rect.width
             relative_height = rectangle.height / signature_page.rect.height
-            if 2.3 <= ratio <= 3.2 and 0.08 <= relative_width <= 0.3 and 0.02 <= relative_height <= 0.12:
-                score = abs(ratio - 2.61) + abs(relative_width - 0.148)
+            if 1.4 <= source_ratio <= 1.65 and 0.08 <= relative_width <= 0.3 and 0.02 <= relative_height <= 0.12:
+                score = abs(source_ratio - 1.514) + abs(relative_width - 0.148)
                 signature_candidates.append((score, rectangle))
         if not signature_candidates:
             raise DocumentConversionError(
